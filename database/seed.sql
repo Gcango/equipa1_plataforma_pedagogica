@@ -1,0 +1,1 @@
+-- Dados fictícios de teste. Nunca usar dados pessoais reais.

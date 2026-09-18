@@ -1,0 +1,2 @@
+-- Plataforma Assíncrona de Atividades Pedagógicas
+-- Criar tabelas após validar o DER.
