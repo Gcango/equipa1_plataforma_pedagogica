@@ -1,13 +1,25 @@
 # 09 — Retrospetiva
 
-## START
+Registo de retrospetivas ao final de cada ciclo/sprint (START / STOP / CONTINUE +
+aprendizagens, dificuldades e melhorias). Não inventar entradas retroativas — só
+preencher após o ciclo ter realmente decorrido.
 
-## STOP
+## Sprint 0 (Análise / Setup) — [DATA A PREENCHER]
 
-## CONTINUE
+### START
+_A preencher pela equipa no final do sprint._
 
-## Aprendizagens
+### STOP
+_A preencher pela equipa no final do sprint._
 
-## Dificuldades
+### CONTINUE
+_A preencher pela equipa no final do sprint._
 
-## Melhorias
+### Aprendizagens
+_A preencher pela equipa no final do sprint._
+
+### Dificuldades
+_A preencher pela equipa no final do sprint._
+
+### Melhorias
+_A preencher pela equipa no final do sprint._
