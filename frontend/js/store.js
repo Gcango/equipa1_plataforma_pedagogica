@@ -279,12 +279,12 @@
     }
     function publicHome() {
       return {
-        courses: db.courses.map(c => ({
+        courses: db.coursesLive || db.courses.map(c => ({
           id: c.id, name: c.name, area: c.area, short: c.short, description: c.description, years: c.years, photo: c.photo,
           modules: db.modules.filter(m => m.courseId === c.id).map(m => m.name),
         })),
         events: publishedEvents().map(e => ({ ...e })),
-        stats: stats(),
+        stats: db.liveStats || stats(),
       };
     }
 
@@ -659,7 +659,21 @@
       return svc;
     }
 
-    return { init, wasMigrated: () => migrated, resetDemo, subscribe, reload, session, login, logout, register, publicHome, stats, as, publishedEvents: () => publishedEvents().map(e => ({ ...e })), _db: () => db };
+    // Substitui a cache local de eventos (usado quando os eventos passam a vir
+    // de uma base de dados partilhada — ver public/js/supabase-client.js —
+    // para que publicHome()/publishedEvents() continuem a funcionar sem
+    // alterações). Não mexe em mais nada do documento.
+    function setEvents(events) { db.events = events; commit(['events']); }
+    // Substitui os cursos (com módulos já incluídos) e as 5 estatísticas públicas
+    // por uma versão vinda do Supabase — mesma ideia do setEvents() acima.
+    function setPublicHomeLive(coursesLive, liveStats) { db.coursesLive = coursesLive; db.liveStats = liveStats; commit(['courses', 'stats']); }
+    // Substitui TODO o documento local por uma versão vinda do Supabase — usado
+    // depois de autenticar a sério (ver public/js/supabase-client.js). Os
+    // métodos as(userId)/publicHome()/etc. continuam a funcionar sem alterações,
+    // porque continuam só a ler de `db`; só a origem dos dados muda.
+    function replaceDb(partial) { Object.assign(db, partial); commit(['*']); }
+
+    return { init, wasMigrated: () => migrated, resetDemo, subscribe, reload, session, login, logout, register, publicHome, stats, as, publishedEvents: () => publishedEvents().map(e => ({ ...e })), setEvents, setPublicHomeLive, replaceDb, _db: () => db };
   }
 
   return {

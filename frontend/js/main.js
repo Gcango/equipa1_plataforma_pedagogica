@@ -80,7 +80,6 @@ function formIsBusy() {
 function applyLive() {
   if (App.screen === 'home') return refreshHome();
   if (App.screen !== 'app' || !App.user) return;
-  if (!App.store.session()) { toast('A tua sessão terminou.', 'error'); return leaveApp(); }
   if (modalOpen()) return updateChrome();
   if (LIVE_PAGES[App.user.role].has(App.page) && !formIsBusy()) renderMain(false); else updateChrome();
 }
@@ -100,8 +99,22 @@ function pickStorage(kind) {
   App.store.subscribe(onStoreChange);
   if (channel) channel.onmessage = () => App.store.reload();
   window.addEventListener('storage', e => { if (e.key === 'aldijos.db.v1') App.store.reload(); });
-  const s = App.store.session();
-  if (s) enterApp(s); else render();
-  if (App.store.wasMigrated()) toast('Dados de demonstração atualizados para a nova versão.');
+  if (window.Supa) {
+    Supa.refreshCache().catch(e => console.error(e)); Supa.subscribeRealtime();
+    Supa.refreshPublicHome().catch(e => console.error(e)); Supa.subscribeHomeRealtime();
+    const { data } = await Supa.client.auth.getSession();
+    if (data.session) {
+      try {
+        const { data: profile } = await Supa.client.from('profiles').select('*').eq('id', data.session.user.id).single();
+        if (profile && profile.active) {
+          await Supa.refreshMirror();
+          enterApp({ id: profile.id, name: profile.name, email: data.session.user.email, role: profile.role });
+        } else render();
+      } catch (e) { console.error(e); render(); }
+    } else render();
+    Supa.client.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT' && App.user) { toast('A tua sessão terminou.', 'error'); leaveApp(); }
+    });
+  } else render();
   if (!App.persistent) toast('O armazenamento do browser não está disponível: os dados só duram até fechares o separador.', 'error');
 })();

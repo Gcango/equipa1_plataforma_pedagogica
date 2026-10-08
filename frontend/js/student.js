@@ -82,10 +82,23 @@ ACTIONS['file-pick'] = safe(async el => {
   const file = el.files && el.files[0]; if (!file) return;
   const a = App.svc.activity(el.dataset.id); App.answers[a.id] = collectAnswers(a);
   if (file.size > Aldijos.limits.MAX_FILE_BYTES) { el.value = ''; return toast(`Ficheiro demasiado grande (máximo ${Aldijos.limits.MAX_FILE_BYTES / 1024} KB nesta demonstração).`, 'error'); }
-  const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(new Error('leitura')); r.readAsDataURL(file); });
-  App.svc.saveFile(a.id, { name: file.name, dataUrl }); toast('Ficheiro anexado.'); renderMain();
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (!['pdf', 'png', 'jpg', 'jpeg', 'txt', 'docx', 'zip'].includes(ext)) { el.value = ''; return toast('Tipo de ficheiro não permitido.', 'error'); }
+  const { data: subId, error: subErr } = await Supa.client.rpc('ensure_submission', { p_activity_id: a.id });
+  if (subErr) { toast(subErr.message, 'error'); return; }
+  const path = `${subId}/${Date.now()}-${file.name}`;
+  const { error: upErr } = await Supa.client.storage.from('submissions').upload(path, file);
+  if (upErr) { toast(upErr.message, 'error'); return; }
+  const { error } = await Supa.client.from('submission_files').insert({ submission_id: subId, name: file.name, size: file.size, file_url: path });
+  if (error) { toast(error.message, 'error'); return; }
+  await Supa.refreshMirror(); toast('Ficheiro anexado.'); renderMain();
 });
-ACTIONS['file-remove'] = safe(async el => { const a = App.svc.activity(el.dataset.id); App.answers[a.id] = collectAnswers(a); App.svc.removeFile(a.id, el.dataset.file); renderMain(); });
+ACTIONS['file-remove'] = safe(async el => {
+  const a = App.svc.activity(el.dataset.id); App.answers[a.id] = collectAnswers(a);
+  const { error } = await Supa.client.from('submission_files').delete().eq('id', el.dataset.file);
+  if (error) { toast(error.message, 'error'); return; }
+  await Supa.refreshMirror(); renderMain();
+});
 ACTIONS['submit-ask'] = safe(async el => {
   const a = App.svc.activity(el.dataset.id), ans = collectAnswers(a); App.answers[a.id] = ans;
   const blank = a.questionCount - Object.keys(ans).length;
@@ -94,8 +107,13 @@ ACTIONS['submit-ask'] = safe(async el => {
     <div class="modal-actions"><button class="btn btn-primary" data-action="submit-go" data-id="${a.id}">Sim, submeter</button><button class="btn" data-action="close-modal">Voltar</button></div></div>`, { plain: true });
 });
 ACTIONS['submit-go'] = safe(async el => {
-  const id = el.dataset.id; const r = App.svc.submit(id, App.answers[id] || {}); delete App.answers[id]; closeModal();
-  toast(r.status === 'CORRIGIDA' ? 'Submetida e corrigida automaticamente.' : 'Submetida. O professor vai avaliar as respostas abertas.'); go('resultado', { id: r.submissionId });
+  const id = el.dataset.id; const answers = App.answers[id] || {};
+  const { data, error } = await Supa.client.rpc('submit_activity', { p_activity_id: id, p_answers: answers }).single();
+  if (error) { toast(error.message || 'Não foi possível submeter.', 'error'); closeModal(); return; }
+  delete App.answers[id]; closeModal();
+  await Supa.refreshMirror();
+  toast(data.out_status === 'CORRIGIDA' ? 'Submetida e corrigida automaticamente.' : 'Submetida. O professor vai avaliar as respostas abertas.');
+  go('resultado', { id: data.out_submission_id });
 });
 
 /* ---------- resultados ---------- */
@@ -119,7 +137,12 @@ function itemsHtml(d, forTeacher) {
 }
 const filesHtml = d => d.files.length ? `<div class="section-title">Ficheiros submetidos</div>${d.files.map(f => `<div class="file-row"><span>${esc(f.name)}</span><span class="cell-sub">${fmtSize(f.size)}</span><button class="btn-text" data-action="file-download" data-sub="${d.id}" data-file="${f.id}">Descarregar</button></div>`).join('')}` : '';
 ACTIONS['file-download'] = safe(async el => {
-  const f = App.svc.file(el.dataset.sub, el.dataset.file); const a = document.createElement('a'); a.href = f.dataUrl; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+  const sub = App.store._db().submissions.find(s => s.id === el.dataset.sub);
+  const f = sub && sub.files.find(x => x.id === el.dataset.file); if (!f) return;
+  const { data, error } = await Supa.client.storage.from('submissions').download(f.dataUrl);
+  if (error) { toast(error.message, 'error'); return; }
+  const url = URL.createObjectURL(data); const a = document.createElement('a'); a.href = url; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 });
 PAGES.ALUNO.resultado = p => {
   const d = App.svc.submissionDetail(p.id), done = d.status === 'CORRIGIDA';

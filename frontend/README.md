@@ -21,16 +21,27 @@ frontend/
 ├── index.html
 ├── styles.css
 ├── js/
-│   ├── store.js     # camada de dados: persistência, autenticação, permissões, correção
-│   ├── seed.js      # dados iniciais de demonstração
+│   ├── store.js              # camada de dados local: persistência, permissões, correção (continua testada em tests/)
+│   ├── supabase-client.js    # ponte para o Supabase (base de dados real, autenticação, ficheiros)
+│   ├── supabase-config.js    # URL + chave pública (publishable) do projeto Supabase
+│   ├── seed.js               # dados iniciais de demonstração
 │   └── ui.js, home.js, auth.js, student.js, teacher.js, admin.js, legal.js, main.js
 └── img/
 ```
 
 ## Nota importante
 
-Nesta fase, a lógica que normalmente estaria no `backend/` (autenticação, permissões,
-persistência, correção automática) está implementada em `js/store.js`, a correr no
-browser, com persistência em `localStorage`. Ver a justificação em
-`docs/10_decisoes_tecnicas.md` (ADR-007) e o estado de cada funcionalidade em
-`docs/13_auditoria_funcionalidades.md`.
+A plataforma passou a ter uma base de dados real (Postgres, no Supabase): autenticação,
+cursos/turmas/módulos, atividades, submissões, notas e eventos ficam partilhados entre
+dispositivos, não só no `localStorage` do browser. O esquema e as regras de segurança
+estão em `supabase/migrations/` (SQL versionado). Ver `docs/10_decisoes_tecnicas.md`
+(ADR-007 para o contexto original, ADR-008 para esta migração) e o estado de cada
+funcionalidade em `docs/13_auditoria_funcionalidades.md`.
+
+`js/store.js` mantém-se como camada local (ainda testada em `tests/`) e é a partir dela
+que o site funciona enquanto `App.store.replaceDb()` não é chamado com os dados vindos
+do Supabase (ver `js/supabase-client.js` e `js/main.js`).
+
+Para ligar a um projeto Supabase próprio: criar o projeto, correr os ficheiros de
+`supabase/migrations/` por ordem no SQL Editor do Supabase, e preencher
+`js/supabase-config.js` com o URL e a chave pública ("publishable") desse projeto.

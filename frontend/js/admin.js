@@ -31,19 +31,29 @@ PAGES.ADMIN.utilizadores = () => {
     ${rows.map(u => `<tr><td>${esc(u.name)}</td><td class="cell-sub">${esc(u.email)}</td>
       <td class="cell-sub">${u.role === 'ALUNO' ? esc(u.className || 'Sem turma') : u.role === 'PROFESSOR' ? esc(u.modules.join(', ') || 'Sem módulos') : ''}</td>
       <td>${statusText(u.active ? 'Ativo' : 'Inativo')}</td>
-      <td><div class="row-actions" style="font-size:12.5px;"><button class="btn-text" data-action="user-active" data-id="${u.id}" data-on="${u.active ? 0 : 1}">${u.active ? 'Desativar' : 'Ativar'}</button><button class="btn-text muted" data-action="pw-ask" data-id="${u.id}" data-name="${esc(u.name)}">Repor palavra-passe</button></div></td></tr>`).join('')}</tbody></table></div>` : emptyBox('Não existem utilizadores neste perfil.')}`;
+      <td><div class="row-actions" style="font-size:12.5px;"><button class="btn-text" data-action="user-active" data-id="${u.id}" data-on="${u.active ? 0 : 1}">${u.active ? 'Desativar' : 'Ativar'}</button><button class="btn-text muted" data-action="pw-ask" data-id="${u.id}" data-name="${esc(u.name)}" data-email="${esc(u.email)}">Repor palavra-passe</button></div></td></tr>`).join('')}</tbody></table></div>` : emptyBox('Não existem utilizadores neste perfil.')}`;
 };
 ACTIONS['form-user'] = toggleForm('user');
 ACTIONS['user-tab'] = el => { userTab = el.dataset.tab; renderMain(); };
-ACTIONS['user-active'] = safe(async el => { App.svc.setUserActive(el.dataset.id, el.dataset.on === '1'); toast(el.dataset.on === '1' ? 'Utilizador ativado.' : 'Utilizador desativado.'); renderMain(); });
+ACTIONS['user-active'] = safe(async el => {
+  const { error } = await Supa.client.from('profiles').update({ active: el.dataset.on === '1' }).eq('id', el.dataset.id);
+  if (error) { toast(error.message, 'error'); return; }
+  await Supa.refreshMirror(); toast(el.dataset.on === '1' ? 'Utilizador ativado.' : 'Utilizador desativado.'); renderMain();
+});
 FORMS.user = safe(async f => {
-  await App.svc.createUser({ name: $('#u-name', f).value, email: $('#u-email', f).value, role: $('#u-role', f).value, password: $('#u-pass', f).value });
+  const name = $('#u-name', f).value, email = $('#u-email', f).value.trim().toLowerCase(), role = $('#u-role', f).value, password = $('#u-pass', f).value;
+  const uid = await Supa.createUserAccount(email, password, name, role);
+  if (!uid) return; // erro já mostrado por createUserAccount
   adminForms.user = false; toast('Utilizador criado.'); renderMain();
 });
-ACTIONS['pw-ask'] = el => openModal(`<div class="modal-body"><h2 id="modal-title">Repor palavra-passe</h2><p style="color:var(--text-muted);">Define uma nova palavra-passe para <b>${esc(el.dataset.name)}</b>.</p>
-  <form data-form="pw" novalidate><input type="hidden" id="pw-id" value="${esc(el.dataset.id)}"><div class="field"><label for="pw-new">Nova palavra-passe</label><input id="pw-new" type="password" autocomplete="new-password" required><div class="helper">Mínimo de 8 caracteres, com letras e números.</div></div>
-  <div class="modal-actions"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="close-modal">Cancelar</button></div></form></div>`, { plain: true });
-FORMS.pw = safe(async f => { await App.svc.resetPassword($('#pw-id', f).value, $('#pw-new', f).value); closeModal(); toast('Palavra-passe atualizada.'); });
+ACTIONS['pw-ask'] = el => openModal(`<div class="modal-body"><h2 id="modal-title">Repor palavra-passe</h2>
+  <p style="color:var(--text-muted);">Vamos enviar um email de recuperação de palavra-passe para <b>${esc(el.dataset.name)}</b>. Como não há servidor próprio, não é possível definir a palavra-passe diretamente — a pessoa define-a a partir do link que recebe.</p>
+  <input type="hidden" id="pw-email" value="${esc(el.dataset.email)}">
+  <div class="modal-actions"><button class="btn btn-primary" data-action="pw-send" data-email="${esc(el.dataset.email)}">Enviar email de recuperação</button><button class="btn" data-action="close-modal">Cancelar</button></div></div>`, { plain: true });
+ACTIONS['pw-send'] = safe(async el => {
+  const { error } = await Supa.client.auth.resetPasswordForEmail(el.dataset.email);
+  closeModal(); toast(error ? error.message : 'Email de recuperação enviado.', error ? 'error' : undefined);
+});
 
 /* ---------- cursos ---------- */
 PAGES.ADMIN.cursos = () => {
@@ -56,7 +66,12 @@ PAGES.ADMIN.cursos = () => {
   <div class="list" style="margin-top:14px;">${l.map(c => `<div class="list-row"><div class="row-main"><div class="row-title">${esc(c.name)}</div><div class="row-sub">${esc(c.area)} · ${c.turmas} turma${c.turmas === 1 ? '' : 's'} · ${c.modulos} módulo${c.modulos === 1 ? '' : 's'}</div></div><div class="row-side">${c.alunos} aluno${c.alunos === 1 ? '' : 's'}</div></div>`).join('')}</div>`;
 };
 ACTIONS['form-course'] = toggleForm('course');
-FORMS.course = safe(async f => { App.svc.createCourse({ name: $('#c-name', f).value, area: $('#c-area', f).value, description: $('#c-des', f).value }); adminForms.course = false; toast('Curso criado.'); renderMain(); });
+FORMS.course = safe(async f => {
+  const name = $('#c-name', f).value, area = $('#c-area', f).value, description = $('#c-des', f).value;
+  const { error } = await Supa.client.from('courses').insert({ name, area, description, short: description.slice(0, 100), years: 3, photo: '' });
+  if (error) { toast(error.message, 'error'); return; }
+  await Supa.refreshMirror(); adminForms.course = false; toast('Curso criado.'); renderMain();
+});
 
 /* ---------- turmas e alunos ---------- */
 PAGES.ADMIN.turmas = () => {
@@ -74,9 +89,23 @@ PAGES.ADMIN.turmas = () => {
     <div style="margin-top:6px;">${c.students.length ? c.students.map(s => `<span class="chip-inline">${esc(s.name)}<button data-action="unenroll" data-id="${s.id}" aria-label="Remover ${esc(s.name)} da turma">×</button></span>`).join('') : '<span class="helper">Sem alunos associados.</span>'}</div></div></div>`).join('')}</div>`;
 };
 ACTIONS['form-klass'] = toggleForm('klass');
-FORMS.klass = safe(async f => { App.svc.createClass({ courseId: $('#k-course', f).value, name: $('#k-name', f).value, year: $('#k-year', f).value }); adminForms.klass = false; toast('Turma criada.'); renderMain(); });
-FORMS.enroll = safe(async f => { App.svc.enroll($('#e-student', f).value, $('#e-class', f).value); toast('Aluno associado à turma.'); renderMain(); });
-ACTIONS.unenroll = safe(async el => { App.svc.unenroll(el.dataset.id); toast('Aluno removido da turma.'); renderMain(); });
+FORMS.klass = safe(async f => {
+  const { error } = await Supa.client.from('classes').insert({ course_id: $('#k-course', f).value, name: $('#k-name', f).value, year: $('#k-year', f).value });
+  if (error) { toast(error.message, 'error'); return; }
+  await Supa.refreshMirror(); adminForms.klass = false; toast('Turma criada.'); renderMain();
+});
+FORMS.enroll = safe(async f => {
+  const studentId = $('#e-student', f).value, classId = $('#e-class', f).value;
+  await Supa.client.from('enrollments').delete().eq('student_id', studentId);
+  const { error } = await Supa.client.from('enrollments').insert({ student_id: studentId, class_id: classId });
+  if (error) { toast(error.message, 'error'); return; }
+  await Supa.refreshMirror(); toast('Aluno associado à turma.'); renderMain();
+});
+ACTIONS.unenroll = safe(async el => {
+  const { error } = await Supa.client.from('enrollments').delete().eq('student_id', el.dataset.id);
+  if (error) { toast(error.message, 'error'); return; }
+  await Supa.refreshMirror(); toast('Aluno removido da turma.'); renderMain();
+});
 
 /* ---------- módulos e professores ---------- */
 const classOptionsFor = moduleId => { const m = App.svc.modules().find(x => x.id === moduleId); return App.svc.classes().filter(c => m && c.courseId === m.courseId).map(c => [c.id, c.name]); };
@@ -98,12 +127,37 @@ PAGES.ADMIN.modulos = () => {
 };
 ACTIONS['form-module'] = toggleForm('module');
 ACTIONS['assign-module'] = el => { const s = $('#a-class'); if (s) s.innerHTML = optionList(classOptionsFor(el.value)); };
-FORMS.module = safe(async f => { App.svc.createModule({ courseId: $('#m-course', f).value, name: $('#m-name', f).value, hours: $('#m-hours', f).value }); adminForms.module = false; toast('Módulo criado.'); renderMain(); });
-FORMS.assign = safe(async f => { App.svc.assignTeacher($('#a-teacher', f).value, $('#a-module', f).value, $('#a-class', f).value); toast('Professor associado.'); renderMain(); });
-ACTIONS.unassign = safe(async el => { App.svc.unassignTeacher(el.dataset.t, el.dataset.m, el.dataset.c); toast('Associação removida.'); renderMain(); });
+FORMS.module = safe(async f => {
+  const { error } = await Supa.client.from('modules').insert({ course_id: $('#m-course', f).value, name: $('#m-name', f).value, hours: Number($('#m-hours', f).value) });
+  if (error) { toast(error.message, 'error'); return; }
+  await Supa.refreshMirror(); adminForms.module = false; toast('Módulo criado.'); renderMain();
+});
+FORMS.assign = safe(async f => {
+  const { error } = await Supa.client.from('teaching').insert({ teacher_id: $('#a-teacher', f).value, module_id: $('#a-module', f).value, class_id: $('#a-class', f).value });
+  if (error) { toast(error.code === '23505' ? 'Esta associação já existe.' : error.message, 'error'); return; }
+  await Supa.refreshMirror(); toast('Professor associado.'); renderMain();
+});
+ACTIONS.unassign = safe(async el => {
+  const clash = App.store._db().activities.some(a => a.teacherId === el.dataset.t && a.moduleId === el.dataset.m && a.classId === el.dataset.c);
+  if (clash) { toast('O professor já tem atividades neste módulo/turma.', 'error'); return; }
+  const { error } = await Supa.client.from('teaching').delete().eq('teacher_id', el.dataset.t).eq('module_id', el.dataset.m).eq('class_id', el.dataset.c);
+  if (error) { toast(error.message, 'error'); return; }
+  await Supa.refreshMirror(); toast('Associação removida.'); renderMain();
+});
 
 /* ---------- eventos ---------- */
 const evForm = { open: false, editing: null };
+ACTIONS['supa-login'] = () => openModal(`<div class="modal-body"><h2 id="modal-title">Ligar conta Supabase</h2>
+  <p style="color:var(--text-muted);">Autoriza esta sessão a escrever eventos na base de dados partilhada. Usa um email real (pode ser diferente do que usas para entrar na Aldijos) — só é preciso fazer isto uma vez por dispositivo.</p>
+  <form data-form="supa-login" novalidate>
+    <div class="field"><label for="sb-email">Email</label><input id="sb-email" type="email" required></div>
+    <div class="field"><label for="sb-pass">Palavra-passe</label><input id="sb-pass" type="password" autocomplete="current-password" required></div>
+    <div class="modal-actions"><button class="btn btn-primary" type="submit">Ligar</button><button class="btn" type="button" data-action="close-modal">Cancelar</button></div>
+  </form></div>`, { plain: true });
+FORMS['supa-login'] = safe(async f => {
+  await Supa.ensureSession($('#sb-email', f).value, $('#sb-pass', f).value);
+  App.supaReady = true; closeModal(); toast('Conta Supabase ligada. Já podes criar/editar eventos.'); renderMain();
+});
 PAGES.ADMIN.eventos = () => {
   const list = App.svc.eventsAll(), courses = App.svc.courses();
   const ed = evForm.editing ? list.find(e => e.id === evForm.editing) : null, v = ed || { published: true, courseId: '' };
@@ -123,6 +177,7 @@ PAGES.ADMIN.eventos = () => {
       <div class="field" style="justify-content:flex-end;"><label style="display:flex; gap:8px; align-items:center; font-size:13px; color:var(--text);"><input id="ev-pub" type="checkbox" ${v.published ? 'checked' : ''}> Publicado (visível para todos)</label></div></div>
     <div class="row-actions"><button class="btn btn-primary" type="submit">${ed ? 'Guardar alterações' : 'Criar evento'}</button><button class="btn" type="button" data-action="ev-cancel">Cancelar</button></div></form>` : '';
   return `<div class="page-head"><div><h1>Eventos</h1><p>Os eventos publicados aparecem na página inicial e nos painéis de alunos e professores.</p></div><button class="btn btn-primary" data-action="ev-new">+ Novo evento</button></div>
+  ${!App.supaReady ? `<div class="box" style="margin:14px 0; display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;"><span>⚠️ Sem sessão Supabase nesta sessão — criar/editar/eliminar eventos vai falhar até ligares.</span><button class="btn btn-sm" data-action="supa-login">Ligar conta Supabase</button></div>` : ''}
   ${form}${list.length ? `<div class="table-wrap" style="margin-top:14px;"><table><thead><tr><th>Evento</th><th>Data</th><th>Estado</th><th>Ações</th></tr></thead><tbody>
     ${list.map(e => `<tr><td>${esc(e.title)}<div class="cell-sub">${esc(e.courseName)} · ${esc(e.category)}</div></td><td class="cell-sub">${esc(fmtEvento(e))}</td>
       <td>${statusText(e.published ? 'PUBLICADA' : 'RASCUNHO').replace('Rascunho', 'Oculto')}</td>
@@ -133,10 +188,10 @@ PAGES.ADMIN.eventos = () => {
 ACTIONS['ev-new'] = () => { evForm.open = true; evForm.editing = null; App.evImg = null; renderMain(); };
 ACTIONS['ev-edit'] = el => { evForm.open = true; evForm.editing = el.dataset.id; App.evImg = null; renderMain(); window.scrollTo(0, 0); const m = $('.app-main'); if (m) m.scrollTop = 0; };
 ACTIONS['ev-cancel'] = () => { evForm.open = false; evForm.editing = null; App.evImg = null; renderMain(); };
-ACTIONS['ev-toggle'] = safe(async el => { App.svc.toggleEvent(el.dataset.id); toast('Estado do evento atualizado.'); renderMain(); });
+ACTIONS['ev-toggle'] = safe(async el => { await Supa.toggleEvent(el.dataset.id); toast('Estado do evento atualizado.'); renderMain(); });
 ACTIONS['ev-del'] = safe(async el => {
   if (App.confirm !== 'ev:' + el.dataset.id) { App.confirm = 'ev:' + el.dataset.id; return renderMain(); }
-  App.confirm = null; App.svc.deleteEvent(el.dataset.id); toast('Evento eliminado.'); renderMain();
+  App.confirm = null; await Supa.deleteEvent(el.dataset.id); toast('Evento eliminado.'); renderMain();
 });
 ACTIONS['ev-img'] = safe(async el => {
   const file = el.files && el.files[0]; if (!file) return;
@@ -146,7 +201,7 @@ ACTIONS['ev-img'] = safe(async el => {
 });
 FORMS.event = safe(async f => {
   const g = id => $(id, f), ed = evForm.editing ? App.svc.eventsAll().find(e => e.id === evForm.editing) : null;
-  App.svc.saveEvent({ id: evForm.editing || undefined, title: g('#ev-title').value, courseId: g('#ev-course').value || null, category: g('#ev-cat').value, audience: g('#ev-aud').value,
+  await Supa.saveEvent({ id: evForm.editing || undefined, title: g('#ev-title').value, courseId: g('#ev-course').value || null, category: g('#ev-cat').value, audience: g('#ev-aud').value,
     date: g('#ev-date').value, dateEnd: g('#ev-end').value, time: g('#ev-time').value, place: g('#ev-place').value, description: g('#ev-desc').value,
     image: App.evImg || (ed ? ed.image : ''), published: g('#ev-pub').checked });
   const wasEdit = !!evForm.editing; evForm.open = false; evForm.editing = null; App.evImg = null; toast(wasEdit ? 'Evento atualizado.' : 'Evento criado.'); renderMain();

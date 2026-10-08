@@ -42,25 +42,58 @@ const showFormError = msg => { const b = $('#form-error'); if (b) b.innerHTML = 
 
 function enterApp(user) {
   App.user = user; App.svc = App.store.as(user.id); App.screen = 'app'; App.page = 'dashboard'; App.params = {}; App.draft = null; App.answers = {}; App.confirm = null;
+  App.supaReady = true;
   render();
+  if (window.Supa) { Supa.refreshCache().catch(e => console.error(e)); Supa.subscribeMirrorRealtime(); }
 }
 function leaveApp() {
-  App.store.logout(); App.user = null; App.svc = null; App.screen = 'home'; closeModal(); render();
+  if (window.Supa) Supa.endSession().catch(e => console.error(e));
+  App.user = null; App.svc = null; App.screen = 'home'; App.supaReady = false; closeModal(); render();
+  if (window.Supa) Supa.refreshCache().catch(e => console.error(e)); // volta à vista pública (só publicados)
+}
+
+// Traduz o email "amigável" do projeto (admin@aldijos.pt, etc.) para o email
+// real da conta Supabase — ver supabase/migrations/0007_login_aliases.sql.
+async function resolveAuthEmail(typed) {
+  const email = String(typed || '').trim().toLowerCase();
+  if (!window.Supa) return email;
+  const { data } = await Supa.client.from('login_aliases').select('auth_email').eq('friendly_email', email).maybeSingle();
+  return data ? data.auth_email : email;
+}
+async function loadProfileUser(uid, displayEmail) {
+  const { data: profile, error } = await Supa.client.from('profiles').select('*').eq('id', uid).single();
+  if (error || !profile) throw new Aldijos.AppError('AUTH', 'Não foi possível carregar o perfil desta conta.');
+  if (!profile.active) throw new Aldijos.AppError('AUTH', 'Esta conta está desativada.');
+  return { id: profile.id, name: profile.name, email: displayEmail, role: profile.role };
 }
 
 FORMS.login = async f => {
-  const email = $('#l-email', f).value, pass = $('#l-pass', f).value, btn = $('button[type=submit]', f);
+  const typed = $('#l-email', f).value, pass = $('#l-pass', f).value, btn = $('button[type=submit]', f);
   showFormError('');
-  if (!email.trim() || !pass) return showFormError('Indica o email e a palavra-passe.');
+  if (!typed.trim() || !pass) return showFormError('Indica o email e a palavra-passe.');
   btn.disabled = true; btn.textContent = 'A verificar…';
-  try { enterApp(await App.store.login(email, pass)); }
+  try {
+    const authEmail = await resolveAuthEmail(typed);
+    const { data, error } = await Supa.client.auth.signInWithPassword({ email: authEmail, password: pass });
+    if (error) throw new Aldijos.AppError('AUTH', 'Email ou palavra-passe incorretos.');
+    const user = await loadProfileUser(data.user.id, typed.trim().toLowerCase());
+    await Supa.refreshMirror();
+    enterApp(user);
+  }
   catch (e) { btn.disabled = false; btn.textContent = 'Entrar'; showFormError(e.name === 'AppError' ? e.message : 'Não foi possível entrar. Tenta novamente.'); if (e.name !== 'AppError') console.error(e); }
 };
 FORMS.register = async f => {
   const g = id => $(id, f).value; showFormError('');
   if (g('#r-pass') !== g('#r-pass2')) return showFormError('As palavras-passe não coincidem.');
   const btn = $('button[type=submit]', f); btn.disabled = true; btn.textContent = 'A criar conta…';
-  try { enterApp(await App.store.register({ name: g('#r-name'), email: g('#r-email'), password: g('#r-pass') })); toast('Conta criada. A administração vai associar-te a uma turma.'); }
+  try {
+    const email = g('#r-email').trim().toLowerCase();
+    const { data, error } = await Supa.client.auth.signUp({ email, password: g('#r-pass'), options: { data: { name: g('#r-name') } } });
+    if (error) throw new Aldijos.AppError('INVALID', error.message === 'User already registered' ? 'Já existe uma conta com este email.' : 'Não foi possível criar a conta.');
+    await Supa.refreshMirror();
+    const user = await loadProfileUser(data.user.id, email);
+    enterApp(user); toast('Conta criada. A administração vai associar-te a uma turma.');
+  }
   catch (e) { btn.disabled = false; btn.textContent = 'Criar conta'; showFormError(e.name === 'AppError' ? e.message : 'Não foi possível criar a conta.'); }
 };
 
