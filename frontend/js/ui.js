@@ -1,5 +1,5 @@
 /* Aldijos — núcleo da interface: estado, utilitários, modais, destaque e animações */
-const App = { store: null, user: null, svc: null, screen: 'home', page: 'dashboard', params: {}, draft: null, answers: {}, evImg: null, hero: { i: 0, timer: null }, homeTab: 'proximos', confirm: null };
+const App = { store: null, user: null, svc: null, screen: 'home', page: 'dashboard', params: {}, draft: null, answers: {}, evImg: null, hero: { i: 0, timer: null }, homeTab: 'proximos', confirm: null, supaReady: false };
 const ACTIONS = {};   // data-action -> função
 const FORMS = {};     // data-form   -> função
 const $ = (s, r) => (r || document).querySelector(s);

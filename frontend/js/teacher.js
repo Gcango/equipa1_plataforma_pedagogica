@@ -40,7 +40,10 @@ PAGES.PROFESSOR.atividades = () => {
 ACTIONS['confirm-clear'] = () => { App.confirm = null; renderMain(); };
 ACTIONS['draft-delete'] = safe(async el => {
   if (App.confirm !== 'del:' + el.dataset.id) { App.confirm = 'del:' + el.dataset.id; return renderMain(); }
-  App.confirm = null; App.svc.deleteDraft(el.dataset.id); toast('Rascunho eliminado.'); renderMain();
+  App.confirm = null;
+  const { error } = await Supa.client.from('activities').delete().eq('id', el.dataset.id).eq('status', 'RASCUNHO');
+  if (error) { toast('Não foi possível eliminar.', 'error'); return; }
+  await Supa.refreshMirror(); toast('Rascunho eliminado.'); renderMain();
 });
 
 /* ---------- construtor de atividades ---------- */
@@ -103,8 +106,38 @@ ACTIONS['q-correct'] = el => { syncDraft(); const q = App.draft.questions[+el.da
 ACTIONS['q-vf'] = el => { syncDraft(); App.draft.questions[+el.dataset.i].correctBool = el.dataset.v === 'true'; };
 const saveDraft = publish => safe(async () => {
   syncDraft(); const d = App.draft; const [moduleId, classId] = (d.target || '').split('|');
-  const payload = { id: d.id, title: d.title, description: d.description, moduleId, classId, deadline: d.deadline, questions: d.questions.map(q => ({ type: q.type, statement: q.statement, options: q.options, correctBool: q.correctBool })) };
-  App.svc.saveActivity(payload, publish); App.draft = null;
+  if (!d.title || d.title.trim().length < 3) { toast('Indica um título (mínimo 3 caracteres).', 'error'); return; }
+  if (publish && !d.questions.length) { toast('Adiciona pelo menos uma pergunta antes de publicar.', 'error'); return; }
+  const sb = Supa.client;
+  const activityRow = {
+    teacher_id: App.user.id, module_id: moduleId, class_id: classId, title: d.title.trim(),
+    description: d.description || '', deadline: d.deadline, status: publish ? 'PUBLICADA' : 'RASCUNHO',
+    published_at: publish ? new Date().toISOString() : null,
+  };
+  let activityId = d.id;
+  if (activityId) {
+    const { error } = await sb.from('activities').update(activityRow).eq('id', activityId);
+    if (error) { toast('Não foi possível guardar: ' + error.message, 'error'); return; }
+    await sb.from('questions').delete().eq('activity_id', activityId); // substitui as perguntas por inteiro
+  } else {
+    const { data, error } = await sb.from('activities').insert(activityRow).select('id').single();
+    if (error) { toast('Não foi possível criar: ' + error.message, 'error'); return; }
+    activityId = data.id;
+  }
+  for (let i = 0; i < d.questions.length; i++) {
+    const q = d.questions[i];
+    const { data: qd, error: qErr } = await sb.from('questions').insert({
+      activity_id: activityId, type: q.type, statement: q.statement, points: 1, correct_bool: q.correctBool ?? null, position: i,
+    }).select('id').single();
+    if (qErr) { toast('Erro a guardar perguntas: ' + qErr.message, 'error'); return; }
+    if (q.options) {
+      for (let j = 0; j < q.options.length; j++) {
+        const o = q.options[j];
+        await sb.from('question_options').insert({ question_id: qd.id, text: o.text, correct: !!o.correct, position: j });
+      }
+    }
+  }
+  await Supa.refreshMirror(); App.draft = null;
   toast(publish ? 'Atividade publicada. Já está visível para a turma.' : 'Rascunho guardado.'); go('atividades');
 });
 ACTIONS['draft-save'] = saveDraft(false); ACTIONS['draft-publish'] = saveDraft(true);
@@ -152,9 +185,14 @@ function updateCalc() {
 }
 ACTIONS['score-input'] = () => updateCalc();
 ACTIONS['grade-save'] = safe(async el => {
-  const scores = {}; $$('[data-score]').forEach(i => { if (i.value !== '') scores[i.dataset.score] = i.value; });
-  const fin = $('#final').value; const data = { scores, feedback: $('#fb').value }; if (fin !== '') data.finalScore = fin;
-  App.svc.grade(el.dataset.id, data); toast('Classificação guardada. O aluno já pode ver o resultado e o feedback.'); go('correcoes');
+  const scores = {}; $$('[data-score]').forEach(i => { if (i.value !== '') scores[i.dataset.score] = Number(i.value); });
+  const fin = $('#final').value;
+  const { error } = await Supa.client.rpc('grade_submission', {
+    p_submission_id: el.dataset.id, p_scores: scores, p_final_score: fin !== '' ? Number(fin) : null, p_feedback: $('#fb').value,
+  });
+  if (error) { toast(error.message || 'Não foi possível guardar a classificação.', 'error'); return; }
+  await Supa.refreshMirror();
+  toast('Classificação guardada. O aluno já pode ver o resultado e o feedback.'); go('correcoes');
 });
 PAGES.PROFESSOR.desempenho = () => {
   const l = App.svc.performance();

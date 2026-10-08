@@ -125,6 +125,34 @@ Consequências:
 - **Consequências:** os dados não são partilhados entre máquinas; a segurança é apenas de demonstração; ficheiros limitados a 300 KB.
   Se o professor exigir base de dados real, migrar para a alternativa (b) — plano em [13_auditoria_funcionalidades.md](13_auditoria_funcionalidades.md).
 
+## ADR-008 — Migração para Supabase (Postgres + Auth + Storage), resolve a [DECISÃO PENDENTE] da ADR-007
+
+- **Data:** 2026-10-08
+- **Estado:** Adotada
+- **Decisão:** Substituir a camada local de `store.js` (localStorage) por uma base de dados Postgres real alojada no Supabase,
+  com autenticação real (Supabase Auth), armazenamento de ficheiros (Supabase Storage) e permissões aplicadas diretamente na
+  base de dados (Row Level Security), não apenas no cliente. O esquema, as políticas de segurança e as funções de negócio
+  (submeter atividade, classificar) vivem em `supabase/migrations/`, como SQL versionado.
+- **Contexto:** o problema concreto que motivou a mudança: eventos publicados pelo Admin só apareciam no browser que os criou,
+  porque todos os dados viviam em `localStorage`, por máquina. Confirmámos em testes reais (sessão anónima, sem login) que
+  a leitura pública de eventos, cursos e estatísticas, e a escrita por utilizadores autenticados, funcionam corretamente
+  entre dispositivos diferentes.
+- **Alternativas:** (a) manter só local (ADR-007, não resolve o problema); (b) Node + Express + PostgreSQL próprio (precisa de
+  hospedar e manter um servidor); (c) Supabase (escolhida) — Postgres gerido + API REST automática + Auth + Storage, sem
+  servidor próprio para manter, plano gratuito suficiente para o projeto.
+- **Justificação:** resolve o problema relatado sem reescrever a interface — `teacher.js`/`student.js`/`admin.js` continuam
+  iguais; só as ações que escrevem dados passaram a chamar o Supabase (`public/js/supabase-client.js`) em vez do `store.js`
+  local. A camada local (`store.js`) mantém-se como referência/testada em `tests/` e como estrutura de leitura (o documento
+  local é "espelhado" a partir do Supabase depois do login — ver `App.store.replaceDb()`).
+- **Consequências:**
+  - O login passa a ser uma conta Supabase real (mesmas credenciais de demonstração documentadas no ecrã de login,
+    `admin@aldijos.pt`, etc. — uma tabela `login_aliases` traduz o email do projeto para o email real da conta).
+  - "Repor palavra-passe" (Admin) deixou de definir a password diretamente — passou a enviar um email de recuperação,
+    por não existir um servidor próprio para operações privilegiadas de autenticação.
+  - A chave usada no cliente (`public/js/supabase-config.js`) é a chave pública ("publishable"), segura para expor — a
+    segurança real está nas políticas SQL (`supabase/migrations/0002_policies.sql` e seguintes), não no segredo da chave.
+  - Qualquer colega com acesso ao projeto Supabase (pedir acesso ao Aldir) pode ver/gerir os dados reais pelo painel.
+
 ---
 
 ## Riscos técnicos identificados

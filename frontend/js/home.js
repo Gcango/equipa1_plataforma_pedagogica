@@ -64,7 +64,7 @@ function renderHome() {
     <div class="sec-head reveal"><div class="sec-eyebrow">Como funciona</div><h2 class="sec-title" id="t-como">Quatro passos, sem precisarem de estar online ao mesmo tempo</h2></div>
     <div class="steps">
       <div class="step reveal" style="--d:0ms"><div class="n">1</div><h3>O professor publica</h3><p>Cria as perguntas e define o prazo.</p></div>
-      <div class="step reveal" style="--d:100ms"><div class="n">2</div><h3>O aluno responde</h3><p>Responde e anexa ficheiros quando lhe convém.</p></div>
+      <div class="step reveal" style="--d:100ms"><div class="n">2</div><h3>O aluno responde</h3><p>Responde e anexa ficheiros a qualquer momento, dentro do prazo definido.</p></div>
       <div class="step reveal" style="--d:200ms"><div class="n">3</div><h3>A correção</h3><p>Automática nas perguntas objetivas; manual nas abertas.</p></div>
       <div class="step reveal" style="--d:300ms"><div class="n">4</div><h3>O resultado</h3><p>Nota e feedback ficam registados e visíveis ao aluno.</p></div>
     </div>
